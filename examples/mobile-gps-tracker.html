@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS Tracker - متتبع الموقع</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #fff;
+        }
+
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .subtitle {
+            text-align: center;
+            opacity: 0.8;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 16px;
+        }
+
+        input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 10px;
+        }
+
+        .btn-primary {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #059669;
+        }
+
+        .btn-primary:disabled {
+            background: #6b7280;
+            cursor: not-allowed;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .status.success {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid #10b981;
+        }
+
+        .status.error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid #ef4444;
+        }
+
+        .status.info {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid #3b82f6;
+        }
+
+        .gps-data {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+
+        .gps-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .gps-item:last-child {
+            border-bottom: none;
+        }
+
+        .gps-label {
+            opacity: 0.7;
+            font-size: 14px;
+        }
+
+        .gps-value {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .pulse {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.5;
+                transform: scale(1.2);
+            }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .log {
+            max-height: 200px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-family: monospace;
+        }
+
+        .log-item {
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>🚗 GPS Tracker</h1>
+            <p class="subtitle">متتبع الموقع للأسطول</p>
+
+            <div id="setupForm">
+                <div class="input-group">
+                    <label>معرف المركبة (Vehicle ID)</label>
+                    <input type="text" id="vehicleId" placeholder="أدخل معرف المركبة">
+                </div>
+
+                <div class="input-group">
+                    <label>معدل الإرسال (ثانية)</label>
+                    <select id="interval">
+                        <option value="5">كل 5 ثوان</option>
+                        <option value="10" selected>كل 10 ثوان</option>
+                        <option value="30">كل 30 ثانية</option>
+                        <option value="60">كل دقيقة</option>
+                    </select>
+                </div>
+
+                <button class="btn-primary" onclick="startTracking()">
+                    🎯 بدء التتبع
+                </button>
+            </div>
+
+            <div id="trackingView" class="hidden">
+                <div class="status success">
+                    <span>التتبع نشط</span>
+                    <span class="pulse"></span>
+                </div>
+
+                <div class="gps-data" id="gpsData">
+                    <div class="gps-item">
+                        <span class="gps-label">خط العرض</span>
+                        <span class="gps-value" id="latitude">--</span>
+                    </div>
+                    <div class="gps-item">
+                        <span class="gps-label">خط الطول</span>
+                        <span class="gps-value" id="longitude">--</span>
+                    </div>
+                    <div class="gps-item">
+                        <span class="gps-label">السرعة</span>
+                        <span class="gps-value" id="speed">-- km/h</span>
+                    </div>
+                    <div class="gps-item">
+                        <span class="gps-label">الاتجاه</span>
+                        <span class="gps-value" id="heading">--°</span>
+                    </div>
+                    <div class="gps-item">
+                        <span class="gps-label">الدقة</span>
+                        <span class="gps-value" id="accuracy">-- m</span>
+                    </div>
+                    <div class="gps-item">
+                        <span class="gps-label">آخر تحديث</span>
+                        <span class="gps-value" id="lastUpdate">--</span>
+                    </div>
+                    <div class="gps-item">
+                        <span class="gps-label">عدد الإرساليات</span>
+                        <span class="gps-value" id="sendCount">0</span>
+                    </div>
+                </div>
+
+                <button class="btn-danger" onclick="stopTracking()">
+                    ⏹️ إيقاف التتبع
+                </button>
+
+                <div class="log" id="log"></div>
+            </div>
+        </div>
+
+        <div id="statusMessage"></div>
+    </div>
+
+    <script>
+        // ⚠️ استبدل هذه القيم بقيمك من ملف .env
+        const SUPABASE_URL = 'https://koewnwzemnwqctuswkzo.supabase.co'
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvZXdud3plbW53cWN0dXN3a3pvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA2ODYwNDAsImV4cCI6MjA3NjI2MjA0MH0.C8R-b0Ip4rfADUu5yv7AvKwlDqUGISKxdEQ-2TzADHw'
+
+        const { createClient } = supabase
+        const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+        let watchId = null
+        let intervalId = null
+        let sendCount = 0
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log')
+            const time = new Date().toLocaleTimeString('ar-SA')
+            const logItem = document.createElement('div')
+            logItem.className = 'log-item'
+            logItem.textContent = `[${time}] ${message}`
+            log.insertBefore(logItem, log.firstChild)
+        }
+
+        async function sendGPSData(position) {
+            const vehicleId = document.getElementById('vehicleId').value
+
+            const gpsData = {
+                vehicle_id: vehicleId,
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                speed: position.coords.speed ? position.coords.speed * 3.6 : 0,
+                heading: position.coords.heading || 0,
+                accuracy: position.coords.accuracy,
+                timestamp: new Date(position.timestamp).toISOString()
+            }
+
+            // تحديث الواجهة
+            document.getElementById('latitude').textContent = gpsData.latitude.toFixed(6)
+            document.getElementById('longitude').textContent = gpsData.longitude.toFixed(6)
+            document.getElementById('speed').textContent = gpsData.speed.toFixed(1) + ' km/h'
+            document.getElementById('heading').textContent = gpsData.heading.toFixed(0) + '°'
+            document.getElementById('accuracy').textContent = gpsData.accuracy.toFixed(1) + ' m'
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('ar-SA')
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('gps_locations')
+                    .insert([gpsData])
+
+                if (error) {
+                    addLog('❌ خطأ في الإرسال: ' + error.message, 'error')
+                    console.error('Error:', error)
+                } else {
+                    sendCount++
+                    document.getElementById('sendCount').textContent = sendCount
+                    addLog('✅ تم إرسال الموقع بنجاح', 'success')
+                }
+            } catch (error) {
+                addLog('❌ خطأ: ' + error.message, 'error')
+                console.error('Exception:', error)
+            }
+        }
+
+        function startTracking() {
+            const vehicleId = document.getElementById('vehicleId').value
+            const interval = parseInt(document.getElementById('interval').value)
+
+            if (!vehicleId) {
+                alert('الرجاء إدخال معرف المركبة')
+                return
+            }
+
+            if (!navigator.geolocation) {
+                alert('المتصفح لا يدعم تحديد الموقع')
+                return
+            }
+
+            // إخفاء نموذج الإعداد وإظهار واجهة التتبع
+            document.getElementById('setupForm').classList.add('hidden')
+            document.getElementById('trackingView').classList.remove('hidden')
+
+            addLog('🚀 بدء التتبع...', 'info')
+
+            // بدء التتبع المستمر
+            watchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    sendGPSData(position)
+                },
+                (error) => {
+                    addLog('❌ خطأ في الموقع: ' + error.message, 'error')
+                    console.error('Geolocation error:', error)
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            )
+
+            // إرسال دوري حسب الفترة المحددة
+            intervalId = setInterval(() => {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        sendGPSData(position)
+                    },
+                    (error) => {
+                        console.error('Error:', error)
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    }
+                )
+            }, interval * 1000)
+        }
+
+        function stopTracking() {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId)
+                watchId = null
+            }
+
+            if (intervalId !== null) {
+                clearInterval(intervalId)
+                intervalId = null
+            }
+
+            addLog('⏹️ تم إيقاف التتبع', 'info')
+
+            // إظهار نموذج الإعداد وإخفاء واجهة التتبع
+            document.getElementById('setupForm').classList.remove('hidden')
+            document.getElementById('trackingView').classList.add('hidden')
+
+            sendCount = 0
+        }
+
+        // منع إغلاق الشاشة أثناء التتبع
+        let wakeLock = null
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen')
+                    addLog('🔒 تم منع إغلاق الشاشة', 'info')
+                }
+            } catch (err) {
+                console.error('Wake Lock error:', err)
+            }
+        }
+
+        // طلب منع إغلاق الشاشة عند بدء التتبع
+        document.addEventListener('DOMContentLoaded', () => {
+            requestWakeLock()
+        })
+    </script>
+</body>
+</html>
