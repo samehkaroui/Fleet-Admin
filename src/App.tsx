@@ -4,15 +4,20 @@ import { FleetProvider } from './contexts/FleetContext';
 import Auth from './components/Auth';
 import Dashboard from './components/Dashboard';
 import Vehicles from './components/Vehicles';
-import GPSTracking from './components/GPSTracking';
+import GPSTrackingEnhanced from './components/GPSTrackingEnhanced';
 import Maintenance from './components/Maintenance';
 import Trips from './components/Trips';
 import VehicleAssignments from './components/VehicleAssignments';
 import Drivers from './components/Drivers';
 import UserRoles from './components/UserRoles';
-import { Truck, LayoutDashboard, MapPin, Wrench, Route, Users, UserCheck, LogOut, Menu, X, Shield } from 'lucide-react';
+import Alerts from './components/Alerts';
+import FuelMonitoring from './components/FuelMonitoring';
+import TripHistory from './components/TripHistory';
+import AddGPSLocation from './components/AddGPSLocation';
+import GPSDeviceConfig from './components/GPSDeviceConfig';
+import { Truck, LayoutDashboard, MapPin, Wrench, Route, Users, UserCheck, LogOut, Menu, X, Shield, Bell, Droplet, History, Navigation2, Smartphone } from 'lucide-react';
 
-type View = 'dashboard' | 'vehicles' | 'drivers' | 'gps' | 'maintenance' | 'trips' | 'assignments' | 'roles';
+type View = 'dashboard' | 'vehicles' | 'drivers' | 'gps' | 'addgps' | 'gpsdevice' | 'maintenance' | 'trips' | 'assignments' | 'roles' | 'alerts' | 'fuel' | 'history';
 
 function AppContent() {
   const { user, loading, signOut } = useAuth();
@@ -35,7 +40,12 @@ function AppContent() {
     { id: 'dashboard' as View, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'vehicles' as View, label: 'Vehicles', icon: Truck },
     { id: 'drivers' as View, label: 'Drivers', icon: UserCheck },
-    { id: 'gps' as View, label: 'GPS Tracking', icon: MapPin },
+    { id: 'gps' as View, label: 'GPS & Zones', icon: MapPin },
+    { id: 'addgps' as View, label: 'Add GPS', icon: Navigation2 },
+    { id: 'gpsdevice' as View, label: 'GPS Devices', icon: Smartphone },
+    { id: 'alerts' as View, label: 'Alerts', icon: Bell },
+    { id: 'fuel' as View, label: 'Fuel Monitor', icon: Droplet },
+    { id: 'history' as View, label: 'Trip History', icon: History },
     { id: 'maintenance' as View, label: 'Maintenance', icon: Wrench },
     { id: 'trips' as View, label: 'Trips', icon: Route },
     { id: 'assignments' as View, label: 'Assignments', icon: Users },
@@ -134,7 +144,12 @@ function AppContent() {
             {currentView === 'dashboard' && <Dashboard />}
             {currentView === 'vehicles' && <Vehicles />}
             {currentView === 'drivers' && <Drivers />}
-            {currentView === 'gps' && <GPSTracking />}
+            {currentView === 'gps' && <GPSTrackingEnhanced />}
+            {currentView === 'addgps' && <AddGPSLocation />}
+            {currentView === 'gpsdevice' && <GPSDeviceConfig />}
+            {currentView === 'alerts' && <Alerts />}
+            {currentView === 'fuel' && <FuelMonitoring />}
+            {currentView === 'history' && <TripHistory />}
             {currentView === 'maintenance' && <Maintenance />}
             {currentView === 'trips' && <Trips />}
             {currentView === 'assignments' && <VehicleAssignments />}
