@@ -94,9 +94,14 @@ app.post('/gps/update', async (req, res) => {
 });
 
 // TCP server for GPS devices (common protocols: GT06, TK103, etc.)
-const GPS_PORT = 5023;
+const GPS_PORT = process.env.GPS_TCP_PORT || 5023;
 const tcpServer = net.createServer((socket) => {
-  console.log('GPS device connected:', socket.remoteAddress);
+  const remoteAddr = socket.remoteAddress;
+  
+  // Only log actual GPS device connections (not localhost health checks)
+  if (remoteAddr && !remoteAddr.includes('127.0.0.1') && !remoteAddr.includes('::1')) {
+    console.log('GPS device connected:', remoteAddr);
+  }
 
   socket.on('data', async (data) => {
     try {
@@ -118,7 +123,10 @@ const tcpServer = net.createServer((socket) => {
   });
 
   socket.on('close', () => {
-    console.log('GPS device disconnected');
+    // Only log actual GPS device disconnections (not localhost health checks)
+    if (remoteAddr && !remoteAddr.includes('127.0.0.1') && !remoteAddr.includes('::1')) {
+      console.log('GPS device disconnected:', remoteAddr);
+    }
   });
 });
 
@@ -371,19 +379,19 @@ io.on('connection', (socket) => {
 });
 
 // Start servers
-const HTTP_PORT = process.env.GPS_SERVER_PORT || 3001;
+// Render provides PORT env variable, use it for HTTP/WebSocket
+const HTTP_PORT = process.env.PORT || process.env.GPS_SERVER_PORT || 3001;
 
-httpServer.listen(HTTP_PORT, () => {
+httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
+  console.log('Fleet GPS Server Started');
+  console.log('========================');
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`HTTP/WebSocket server running on port ${HTTP_PORT}`);
+  console.log(`TCP GPS server will listen on port ${GPS_PORT}`);
+  console.log('========================');
 });
 
-tcpServer.listen(GPS_PORT, () => {
+// Start TCP server for GPS devices
+tcpServer.listen(GPS_PORT, '0.0.0.0', () => {
   console.log(`TCP GPS server listening on port ${GPS_PORT}`);
 });
-
-console.log('Fleet GPS Server Started');
-console.log('========================');
-console.log(`HTTP API: http://localhost:${HTTP_PORT}`);
-console.log(`WebSocket: ws://localhost:${HTTP_PORT}`);
-console.log(`TCP GPS: tcp://localhost:${GPS_PORT}`);
-console.log('========================');
