@@ -81,10 +81,19 @@ export default function GPSDeviceConfig() {
         ? `http://localhost:${httpPort}/health`
         : `${GPS_SERVER_URL}/health`;
       
+      // Shorter timeout for production (Render free tier may be sleeping)
+      const timeoutMs = window.location.hostname === 'localhost' ? 5000 : 10000;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      
       const response = await fetch(healthUrl, {
         method: 'GET',
-        signal: AbortSignal.timeout(5000),
+        signal: controller.signal,
+        mode: 'cors',
       });
+      
+      clearTimeout(timeoutId);
       
       if (response.ok) {
         setServerStatus('running');
@@ -92,7 +101,9 @@ export default function GPSDeviceConfig() {
         setServerStatus('stopped');
       }
     } catch (err) {
-      console.error('Server health check failed:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.warn('Server health check failed (may be sleeping on free tier):', errorMessage);
+      // Don't show error for timeout - server might just be sleeping
       setServerStatus('stopped');
     }
   }, [GPS_SERVER_URL, httpPort]);
@@ -216,16 +227,21 @@ export default function GPSDeviceConfig() {
               </>
             ) : serverStatus === 'stopped' ? (
               <>
-                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                <span className="text-white font-semibold">Stopped</span>
+                <div className="w-3 h-3 bg-amber-500 rounded-full"></div>
+                <span className="text-white font-semibold">Sleeping</span>
               </>
             ) : (
               <>
-                <div className="w-3 h-3 bg-amber-500 rounded-full"></div>
+                <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
                 <span className="text-white font-semibold">Checking...</span>
               </>
             )}
           </div>
+          {serverStatus === 'stopped' && window.location.hostname !== 'localhost' && (
+            <p className="text-xs text-amber-400 mt-2">
+              Free tier server may be sleeping. Click Refresh to wake it up (takes ~30s).
+            </p>
+          )}
         </div>
 
         <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl p-4">
