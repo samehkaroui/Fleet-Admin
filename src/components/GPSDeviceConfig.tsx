@@ -35,9 +35,10 @@ export default function GPSDeviceConfig() {
   });
 
   // Server configuration
-  const serverIP = window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname;
+  const GPS_SERVER_URL = import.meta.env.VITE_GPS_SERVER_URL || 'https://fleet-admin.onrender.com';
+  const serverIP = window.location.hostname === 'localhost' ? 'localhost' : GPS_SERVER_URL.replace(/^https?:\/\//, '');
   const serverPort = '5023';
-  const httpPort = '3001';
+  const httpPort = window.location.hostname === 'localhost' ? '3001' : '';
 
   const loadVehicles = async () => {
     try {
@@ -76,9 +77,13 @@ export default function GPSDeviceConfig() {
 
   const checkServerStatus = useCallback(async () => {
     try {
-      const response = await fetch(`http://${serverIP}:${httpPort}/health`, {
+      const healthUrl = window.location.hostname === 'localhost' 
+        ? `http://localhost:${httpPort}/health`
+        : `${GPS_SERVER_URL}/health`;
+      
+      const response = await fetch(healthUrl, {
         method: 'GET',
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(5000),
       });
       
       if (response.ok) {
@@ -86,10 +91,11 @@ export default function GPSDeviceConfig() {
       } else {
         setServerStatus('stopped');
       }
-    } catch {
+    } catch (err) {
+      console.error('Server health check failed:', err);
       setServerStatus('stopped');
     }
-  }, [serverIP, httpPort]);
+  }, [GPS_SERVER_URL, httpPort]);
 
   useEffect(() => {
     loadVehicles();

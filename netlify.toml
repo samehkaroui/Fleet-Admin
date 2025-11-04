@@ -9,3 +9,8 @@
 
 [build.environment]
   NODE_VERSION = "18"
+
+# Note: Add these environment variables in Netlify dashboard:
+# VITE_SUPABASE_URL = your_supabase_url
+# VITE_SUPABASE_ANON_KEY = your_supabase_anon_key
+# VITE_GPS_SERVER_URL = https://fleet-admin.onrender.com
