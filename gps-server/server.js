@@ -40,6 +40,43 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Root path - some GPS devices send data here
+app.get('/', async (req, res) => {
+  try {
+    console.log('Root GET request received:', req.query);
+    
+    // If there are query parameters, treat as GPS data
+    if (Object.keys(req.query).length > 0) {
+      const device_id = req.query.id || req.query.device_id || req.query.imei || req.query.deviceid;
+      const latitude = req.query.lat || req.query.latitude;
+      const longitude = req.query.lon || req.query.lng || req.query.longitude;
+      const speed = req.query.speed || req.query.spd || '0';
+      const heading = req.query.heading || req.query.course || req.query.dir || '0';
+      const accuracy = req.query.accuracy || req.query.acc || '10';
+
+      if (device_id && latitude && longitude) {
+        const gpsData = {
+          device_id,
+          latitude: parseFloat(latitude),
+          longitude: parseFloat(longitude),
+          speed: parseFloat(speed),
+          heading: parseFloat(heading),
+          accuracy: parseFloat(accuracy),
+          timestamp: new Date().toISOString()
+        };
+
+        console.log('Processing GPS data from root path:', gpsData);
+        await processGPSData(gpsData);
+      }
+    }
+    
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('Error processing root request:', error);
+    res.status(200).send('OK');
+  }
+});
+
 // Get connected devices
 app.get('/devices/connected', (req, res) => {
   const devices = Array.from(connectedDevices.entries()).map(([deviceId, info]) => ({
@@ -51,7 +88,45 @@ app.get('/devices/connected', (req, res) => {
   res.json({ devices, count: devices.length });
 });
 
-// HTTP endpoint for GPS data (for testing or HTTP-based GPS devices)
+// HTTP GET endpoint for GPS devices (many devices send data via GET with query params)
+app.get('/gps', async (req, res) => {
+  try {
+    console.log('GPS GET request received:', req.query);
+    
+    // Extract parameters (different devices use different parameter names)
+    const device_id = req.query.id || req.query.device_id || req.query.imei || req.query.deviceid;
+    const latitude = req.query.lat || req.query.latitude;
+    const longitude = req.query.lon || req.query.lng || req.query.longitude;
+    const speed = req.query.speed || req.query.spd || '0';
+    const heading = req.query.heading || req.query.course || req.query.dir || '0';
+    const accuracy = req.query.accuracy || req.query.acc || '10';
+
+    if (!device_id || !latitude || !longitude) {
+      console.log('Missing GPS data in GET request');
+      return res.status(200).send('OK'); // Some devices expect 200 even without data
+    }
+
+    const gpsData = {
+      device_id,
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      speed: parseFloat(speed),
+      heading: parseFloat(heading),
+      accuracy: parseFloat(accuracy),
+      timestamp: new Date().toISOString()
+    };
+
+    console.log('Processing GPS data from GET:', gpsData);
+    await processGPSData(gpsData);
+
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('Error processing GPS GET request:', error);
+    res.status(200).send('OK'); // Still send OK to keep device happy
+  }
+});
+
+// HTTP POST endpoint for GPS data (for testing or HTTP-based GPS devices)
 app.post('/gps/update', async (req, res) => {
   try {
     const { device_id, latitude, longitude, speed, heading, accuracy } = req.body;
@@ -60,44 +135,19 @@ app.post('/gps/update', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Find vehicle by device_id (you can add a device_id column to vehicles table)
-    const { data: vehicle } = await supabase
-      .from('vehicles')
-      .select('id, user_id')
-      .eq('vin', device_id) // Using VIN as device_id for now
-      .single();
+    const gpsData = {
+      device_id,
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      speed: parseFloat(speed) || 0,
+      heading: parseFloat(heading) || 0,
+      accuracy: parseFloat(accuracy) || 10,
+      timestamp: new Date().toISOString()
+    };
 
-    if (!vehicle) {
-      return res.status(404).json({ error: 'Vehicle not found' });
-    }
+    await processGPSData(gpsData);
 
-    // Insert GPS location
-    const { data: location, error } = await supabase
-      .from('gps_locations')
-      .insert([{
-        vehicle_id: vehicle.id,
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
-        speed: parseFloat(speed) || 0,
-        heading: parseFloat(heading) || 0,
-        accuracy: parseFloat(accuracy) || 10,
-        timestamp: new Date().toISOString()
-      }])
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Emit to connected clients
-    io.emit('gps_update', {
-      vehicle_id: vehicle.id,
-      location
-    });
-
-    // Check for alerts (speed, geofence, etc.)
-    await checkAlerts(vehicle, location);
-
-    res.json({ success: true, location });
+    res.json({ success: true });
   } catch (error) {
     console.error('Error processing GPS update:', error);
     res.status(500).json({ error: error.message });
