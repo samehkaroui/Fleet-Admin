@@ -9,7 +9,7 @@ export default function FuelMonitoring() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [fuelLogs, setFuelLogs] = useState<FuelLog[]>([]);
-  const [vehicleSettings, setVehicleSettings] = useState<VehicleSettings | null>(null);
+  const [, setVehicleSettings] = useState<VehicleSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
 
@@ -29,6 +29,24 @@ export default function FuelMonitoring() {
       loadFuelLogs(selectedVehicle.id);
       loadVehicleSettings(selectedVehicle.id);
     }
+    
+    // Real-time subscription for fuel logs
+    if (!selectedVehicle) return;
+    
+    const fuelLogsSubscription = supabase
+      .channel('fuel_logs_realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'fuel_logs', filter: `vehicle_id=eq.${selectedVehicle.id}` },
+        (payload) => {
+          console.log('Fuel log update received:', payload);
+          loadFuelLogs(selectedVehicle.id);
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      fuelLogsSubscription.unsubscribe();
+    };
   }, [selectedVehicle]);
 
   const loadVehicles = async () => {

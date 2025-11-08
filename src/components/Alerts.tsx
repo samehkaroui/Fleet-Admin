@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase, Alert, Vehicle } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { Bell, AlertTriangle, AlertCircle, Info, CheckCircle, Filter, Eye, EyeOff, Trash2 } from 'lucide-react';
+import { Bell, AlertTriangle, AlertCircle, Info, CheckCircle, Filter, Eye, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 export default function Alerts() {
@@ -53,7 +53,7 @@ export default function Alerts() {
     try {
       const { data } = await supabase
         .from('vehicles')
-        .select('id, name');
+        .select('*');
       
       setVehicles(data || []);
     } catch (error) {

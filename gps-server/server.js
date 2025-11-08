@@ -40,6 +40,17 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Get connected devices
+app.get('/devices/connected', (req, res) => {
+  const devices = Array.from(connectedDevices.entries()).map(([deviceId, info]) => ({
+    device_id: deviceId,
+    remote_address: info.remoteAddr,
+    last_seen: info.lastSeen,
+    connected: true
+  }));
+  res.json({ devices, count: devices.length });
+});
+
 // HTTP endpoint for GPS data (for testing or HTTP-based GPS devices)
 app.post('/gps/update', async (req, res) => {
   try {
@@ -95,12 +106,15 @@ app.post('/gps/update', async (req, res) => {
 
 // TCP server for GPS devices (common protocols: GT06, TK103, etc.)
 const GPS_PORT = process.env.GPS_TCP_PORT || 5023;
+const connectedDevices = new Map(); // Track connected devices
+
 const tcpServer = net.createServer((socket) => {
   const remoteAddr = socket.remoteAddress;
+  let deviceId = null;
   
   // Only log actual GPS device connections (not localhost health checks)
   if (remoteAddr && !remoteAddr.includes('127.0.0.1') && !remoteAddr.includes('::1')) {
-    console.log('GPS device connected:', remoteAddr);
+    console.log('GPS device connected from:', remoteAddr);
   }
 
   socket.on('data', async (data) => {
@@ -110,8 +124,20 @@ const tcpServer = net.createServer((socket) => {
       const gpsData = parseGPSData(data);
       
       if (gpsData) {
+        deviceId = gpsData.device_id;
+        connectedDevices.set(deviceId, { socket, remoteAddr, lastSeen: new Date() });
+        
         // Process the GPS data
         await processGPSData(gpsData);
+        
+        // Send acknowledgment (GT06 protocol)
+        if (data[0] === 0x78 && data[1] === 0x78) {
+          const serialNumber = data.readUInt16BE(data[2] - 2);
+          const ack = Buffer.from([0x78, 0x78, 0x05, 0x01, 
+            (serialNumber >> 8) & 0xFF, serialNumber & 0xFF, 
+            0x0D, 0x0A]);
+          socket.write(ack);
+        }
       }
     } catch (error) {
       console.error('Error processing GPS data:', error);
@@ -120,12 +146,18 @@ const tcpServer = net.createServer((socket) => {
 
   socket.on('error', (error) => {
     console.error('Socket error:', error);
+    if (deviceId) {
+      connectedDevices.delete(deviceId);
+    }
   });
 
   socket.on('close', () => {
     // Only log actual GPS device disconnections (not localhost health checks)
     if (remoteAddr && !remoteAddr.includes('127.0.0.1') && !remoteAddr.includes('::1')) {
-      console.log('GPS device disconnected:', remoteAddr);
+      console.log('GPS device disconnected:', remoteAddr, deviceId ? `(${deviceId})` : '');
+    }
+    if (deviceId) {
+      connectedDevices.delete(deviceId);
     }
   });
 });
@@ -136,9 +168,51 @@ function parseGPSData(buffer) {
     // This is a simplified parser - real implementation depends on device protocol
     // GT06, TK103, H02, etc. have different formats
     
-    // Example: Parse basic NMEA GPRMC sentence
-    const data = buffer.toString();
+    const hex = buffer.toString('hex');
+    console.log('Received GPS data (hex):', hex);
     
+    // GT06 protocol parsing
+    if (buffer[0] === 0x78 && buffer[1] === 0x78) {
+      const length = buffer[2];
+      const protocolNumber = buffer[3];
+      
+      // Login packet (0x01) - contains IMEI
+      if (protocolNumber === 0x01) {
+        const imei = buffer.slice(4, 12).toString('hex');
+        console.log('Device login - IMEI:', imei);
+        return null; // Just log, don't process as location
+      }
+      
+      // Location packet (0x12 or 0x22)
+      if (protocolNumber === 0x12 || protocolNumber === 0x22) {
+        // Extract IMEI from serial number (last 7 digits typically)
+        const serialNumber = buffer.readUInt16BE(length - 4);
+        const deviceId = serialNumber.toString();
+        
+        // Parse location data
+        const dateTime = buffer.slice(4, 10);
+        const gpsLength = buffer[10];
+        const latitude = buffer.readUInt32BE(11) / 1800000;
+        const longitude = buffer.readUInt32BE(15) / 1800000;
+        const speed = buffer[19];
+        const course = buffer.readUInt16BE(20);
+        
+        console.log('Parsed location:', { deviceId, latitude, longitude, speed });
+        
+        return {
+          device_id: deviceId,
+          latitude,
+          longitude,
+          speed,
+          heading: course,
+          accuracy: 10,
+          timestamp: new Date().toISOString()
+        };
+      }
+    }
+    
+    // Try NMEA GPRMC sentence parsing as fallback
+    const data = buffer.toString();
     if (data.includes('$GPRMC')) {
       const parts = data.split(',');
       
@@ -148,8 +222,14 @@ function parseGPSData(buffer) {
         const speed = parseFloat(parts[7]) * 1.852; // knots to km/h
         const heading = parseFloat(parts[8]);
         
+        // Try to extract device ID from data
+        const deviceIdMatch = data.match(/ID:(\w+)/i);
+        const deviceId = deviceIdMatch ? deviceIdMatch[1] : 'UNKNOWN';
+        
+        console.log('Parsed NMEA location:', { deviceId, lat, lon, speed });
+        
         return {
-          device_id: 'DEVICE_001', // Extract from data or connection
+          device_id: deviceId,
           latitude: lat,
           longitude: lon,
           speed,
@@ -160,6 +240,7 @@ function parseGPSData(buffer) {
       }
     }
     
+    console.log('Unable to parse GPS data');
     return null;
   } catch (error) {
     console.error('Error parsing GPS data:', error);
@@ -181,17 +262,28 @@ function parseCoordinate(value, direction) {
 
 async function processGPSData(gpsData) {
   try {
-    // Find vehicle
-    const { data: vehicle } = await supabase
-      .from('vehicles')
-      .select('id, user_id')
-      .eq('vin', gpsData.device_id)
+    // Find GPS device configuration
+    const { data: gpsDevice } = await supabase
+      .from('gps_devices')
+      .select('*, vehicle:vehicles(id, user_id)')
+      .eq('device_id', gpsData.device_id)
       .single();
 
-    if (!vehicle) {
-      console.log('Vehicle not found for device:', gpsData.device_id);
+    if (!gpsDevice || !gpsDevice.vehicle) {
+      console.log('GPS device not found:', gpsData.device_id);
       return;
     }
+
+    const vehicle = gpsDevice.vehicle;
+
+    // Update device status to 'active' and last_connection
+    await supabase
+      .from('gps_devices')
+      .update({
+        status: 'active',
+        last_connection: new Date().toISOString()
+      })
+      .eq('device_id', gpsData.device_id);
 
     // Insert GPS location
     const { data: location, error } = await supabase
@@ -215,6 +307,8 @@ async function processGPSData(gpsData) {
       vehicle_id: vehicle.id,
       location
     });
+
+    console.log(`GPS data processed for device ${gpsData.device_id}, vehicle ${vehicle.id}`);
 
     // Check for alerts
     await checkAlerts(vehicle, location);

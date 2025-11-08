@@ -309,12 +309,30 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
           () => refreshMaintenance()
         )
         .subscribe(),
+      
+      // Real-time GPS location updates
+      supabase
+        .channel('gps_locations_changes')
+        .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'gps_locations' },
+          () => refreshGPS()
+        )
+        .subscribe(),
+      
+      // Real-time vehicle assignments updates
+      supabase
+        .channel('assignments_changes')
+        .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'vehicle_assignments' },
+          () => refreshAssignments()
+        )
+        .subscribe(),
     ];
 
     return () => {
       subscriptions.forEach(sub => sub.unsubscribe());
     };
-  }, [user, refreshVehicles, refreshTrips, refreshDrivers, refreshMaintenance]);
+  }, [user, refreshVehicles, refreshTrips, refreshDrivers, refreshMaintenance, refreshGPS, refreshAssignments]);
 
   const value: FleetContextType = {
     vehicles,

@@ -25,7 +25,24 @@ export default function TripHistory() {
 
   useEffect(() => {
     if (selectedTrip) {
-      loadRoutePoints(selectedTrip.id);
+      const loadPoints = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('gps_locations')
+            .select('*')
+            .eq('vehicle_id', selectedTrip.vehicle_id)
+            .gte('timestamp', selectedTrip.departure_time)
+            .lte('timestamp', selectedTrip.arrival_time || new Date().toISOString())
+            .order('timestamp', { ascending: true });
+
+          if (error) throw error;
+          setRoutePoints(data || []);
+        } catch (error) {
+          console.error('Error loading route points:', error);
+        }
+      };
+      
+      loadPoints();
       setCurrentPointIndex(0);
       setIsPlaying(false);
     }
@@ -85,25 +102,6 @@ export default function TripHistory() {
     }
   };
 
-  const loadRoutePoints = async (tripId: string) => {
-    try {
-      const trip = trips.find(t => t.id === tripId);
-      if (!trip) return;
-
-      const { data, error } = await supabase
-        .from('gps_locations')
-        .select('*')
-        .eq('vehicle_id', trip.vehicle_id)
-        .gte('timestamp', trip.departure_time)
-        .lte('timestamp', trip.arrival_time || new Date().toISOString())
-        .order('timestamp', { ascending: true });
-
-      if (error) throw error;
-      setRoutePoints(data || []);
-    } catch (error) {
-      console.error('Error loading route points:', error);
-    }
-  };
 
   const getVehicleName = (vehicleId: string) => {
     return vehicles.find(v => v.id === vehicleId)?.name || 'Unknown';

@@ -60,7 +60,29 @@ export default function GPSTracking() {
 
   useEffect(() => {
     loadVehiclesWithLocations();
-  }, [user, loadVehiclesWithLocations]);
+    
+    // Real-time subscription for GPS location updates
+    if (!user) return;
+    
+    const gpsSubscription = supabase
+      .channel('gps_realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'gps_locations' },
+        (payload) => {
+          console.log('GPS Update received:', payload);
+          loadVehiclesWithLocations();
+          if (selectedVehicle && payload.new && 
+              (payload.new as GPSLocation).vehicle_id === selectedVehicle.id) {
+            loadLocationHistory(selectedVehicle.id);
+          }
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      gpsSubscription.unsubscribe();
+    };
+  }, [user, loadVehiclesWithLocations, selectedVehicle]);
 
   useEffect(() => {
     if (selectedVehicle) {

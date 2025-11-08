@@ -8,7 +8,7 @@ import L from 'leaflet';
 export default function Geofencing() {
   const { user } = useAuth();
   const [geofences, setGeofences] = useState<Geofence[]>([]);
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingGeofence, setEditingGeofence] = useState<Geofence | null>(null);
@@ -29,6 +29,37 @@ export default function Geofencing() {
   useEffect(() => {
     loadGeofences();
     loadVehicles();
+    
+    // Real-time subscription for geofence updates
+    if (!user) return;
+    
+    const geofenceSubscription = supabase
+      .channel('geofences_realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'geofences', filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          console.log('Geofence update received:', payload);
+          loadGeofences();
+        }
+      )
+      .subscribe();
+    
+    // Real-time subscription for geofence events
+    const eventsSubscription = supabase
+      .channel('geofence_events_realtime')
+      .on('postgres_changes', 
+        { event: 'INSERT', schema: 'public', table: 'geofence_events' },
+        (payload) => {
+          console.log('Geofence event received:', payload);
+          // You can add notification logic here
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      geofenceSubscription.unsubscribe();
+      eventsSubscription.unsubscribe();
+    };
   }, [user]);
 
   const loadGeofences = async () => {
@@ -159,7 +190,7 @@ export default function Geofencing() {
 
   function MapClickHandler() {
     useMapEvents({
-      click: (e) => {
+      click(e: any) {
         if (showForm) {
           setFormData(prev => ({
             ...prev,
