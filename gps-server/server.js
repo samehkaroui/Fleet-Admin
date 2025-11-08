@@ -203,13 +203,61 @@ function parseGPSData(buffer) {
   }
 }
 
-// Parse HEAD protocol (text-based)
+// Parse HEAD protocol (text-based, including HTTP requests)
 function parseHEADProtocol(data) {
   try {
-    // Example: HEAD/HTBT,deviceId,lat,lon,speed,heading,...
-    const parts = data.split(',');
+    console.log('Parsing HEAD protocol, data length:', data.length);
     
-    if (parts.length < 5) {
+    // If it's an HTTP request, extract the path/query
+    if (data.includes('HTTP/1.1') || data.includes('HTTP/1.0')) {
+      console.log('Detected HTTP request in HEAD protocol');
+      // Extract the request line (first line)
+      const lines = data.split('\n');
+      const requestLine = lines[0];
+      console.log('HTTP Request line:', requestLine);
+      
+      // Try to extract GPS data from URL path or query
+      // Example: HEAD /gps?id=123&lat=33.5&lon=-7.6 HTTP/1.1
+      const urlMatch = requestLine.match(/HEAD\s+([^\s]+)\s+HTTP/i);
+      if (urlMatch) {
+        const path = urlMatch[1];
+        console.log('Extracted path:', path);
+        
+        // Parse query parameters
+        const queryMatch = path.match(/\?(.+)/);
+        if (queryMatch) {
+          const params = new URLSearchParams(queryMatch[1]);
+          const deviceId = params.get('id') || params.get('device_id') || params.get('imei');
+          const lat = params.get('lat') || params.get('latitude');
+          const lon = params.get('lon') || params.get('lng') || params.get('longitude');
+          const speed = params.get('speed') || params.get('spd') || '0';
+          const heading = params.get('heading') || params.get('course') || '0';
+          
+          if (deviceId && lat && lon) {
+            console.log('HEAD HTTP parsed:', { deviceId, lat, lon, speed });
+            return {
+              device_id: deviceId,
+              latitude: parseFloat(lat),
+              longitude: parseFloat(lon),
+              speed: parseFloat(speed),
+              heading: parseFloat(heading),
+              accuracy: 10,
+              timestamp: new Date().toISOString()
+            };
+          }
+        }
+      }
+      
+      // If no query params, this might just be a health check
+      console.log('HEAD HTTP request has no GPS data (might be health check)');
+      return null;
+    }
+    
+    // Parse comma-separated format: HEAD,deviceId,lat,lon,speed,...
+    const parts = data.split(',');
+    console.log('HEAD protocol parts count:', parts.length);
+    
+    if (parts.length < 3) {
       console.log('HEAD protocol: insufficient data parts');
       return null;
     }
@@ -217,7 +265,7 @@ function parseHEADProtocol(data) {
     // Extract device ID (usually in first or second part)
     let deviceId = null;
     for (let i = 0; i < Math.min(3, parts.length); i++) {
-      const match = parts[i].match(/(\d{10,})/);
+      const match = parts[i].match(/(\d{8,})/);
       if (match) {
         deviceId = match[1];
         break;
@@ -225,7 +273,7 @@ function parseHEADProtocol(data) {
     }
     
     if (!deviceId) {
-      console.log('HEAD protocol: device ID not found');
+      console.log('HEAD protocol: device ID not found in parts:', parts.slice(0, 3));
       return null;
     }
     
@@ -236,7 +284,7 @@ function parseHEADProtocol(data) {
     let heading = 0;
     
     for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
+      const part = parts[i].trim();
       
       // Look for coordinates (format: N/S followed by number or just decimal)
       if (part.match(/^[NS]/) && parts[i + 1]) {
@@ -258,7 +306,7 @@ function parseHEADProtocol(data) {
           latitude = num;
         } else if (num >= -180 && num <= 180 && longitude === null && latitude !== null) {
           longitude = num;
-        } else if (num >= 0 && num <= 300 && latitude !== null && longitude !== null) {
+        } else if (num >= 0 && num <= 300 && latitude !== null && longitude !== null && speed === 0) {
           speed = num;
         }
       }
@@ -277,7 +325,7 @@ function parseHEADProtocol(data) {
       };
     }
     
-    console.log('HEAD protocol: coordinates not found');
+    console.log('HEAD protocol: coordinates not found in parts');
     return null;
   } catch (error) {
     console.error('Error parsing HEAD protocol:', error);
