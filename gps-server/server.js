@@ -87,6 +87,52 @@ app.head('/', (req, res) => {
   res.status(200).end();
 });
 
+// POST to root - Traccar Client sends data here
+app.post('/', async (req, res) => {
+  try {
+    console.log('Root POST request received (Traccar)');
+    console.log('Body:', req.body);
+    console.log('Query params:', req.query);
+    
+    // Traccar sends data in body or query params
+    const data = { ...req.query, ...req.body };
+    
+    const device_id = data.id || data.device_id || data.deviceid || data.uniqueid || data.imei;
+    const latitude = data.lat || data.latitude;
+    const longitude = data.lon || data.lng || data.longitude;
+    const speed = data.speed || data.spd || '0';
+    const heading = data.heading || data.course || data.bearing || '0';
+    const accuracy = data.accuracy || data.acc || '10';
+    const altitude = data.altitude || data.alt || '0';
+    const battery = data.battery || data.batt || '100';
+
+    console.log('Extracted Traccar data:', { device_id, latitude, longitude, speed, heading });
+
+    if (device_id && latitude && longitude) {
+      const gpsData = {
+        device_id,
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        speed: parseFloat(speed),
+        heading: parseFloat(heading),
+        accuracy: parseFloat(accuracy),
+        timestamp: new Date().toISOString()
+      };
+
+      console.log('Processing Traccar GPS data:', gpsData);
+      await processGPSData(gpsData);
+      
+      res.status(200).send('OK');
+    } else {
+      console.log('Missing required GPS data from Traccar');
+      res.status(200).send('OK'); // Still send OK to keep client happy
+    }
+  } catch (error) {
+    console.error('Error processing Traccar POST:', error);
+    res.status(200).send('OK');
+  }
+});
+
 // Get connected devices
 app.get('/devices/connected', (req, res) => {
   const devices = Array.from(connectedDevices.entries()).map(([deviceId, info]) => ({
