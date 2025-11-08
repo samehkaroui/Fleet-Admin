@@ -43,7 +43,9 @@ app.get('/health', (req, res) => {
 // Root path - some GPS devices send data here
 app.get('/', async (req, res) => {
   try {
-    console.log('Root GET request received:', req.query);
+    console.log('Root GET request received');
+    console.log('Query params:', req.query);
+    console.log('Headers:', req.headers);
     
     // If there are query parameters, treat as GPS data
     if (Object.keys(req.query).length > 0) {
@@ -75,6 +77,14 @@ app.get('/', async (req, res) => {
     console.error('Error processing root request:', error);
     res.status(200).send('OK');
   }
+});
+
+// HEAD request handler - some GPS devices use HEAD to check server
+app.head('/', (req, res) => {
+  console.log('HEAD request received');
+  console.log('Query params:', req.query);
+  console.log('Headers:', req.headers);
+  res.status(200).end();
 });
 
 // Get connected devices
