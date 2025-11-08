@@ -16,10 +16,10 @@ const io = new Server(httpServer, {
   }
 });
 
-// Supabase client
+// Supabase client with service role key (bypasses RLS for server operations)
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
-  process.env.VITE_SUPABASE_ANON_KEY
+  process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 );
 
 // CORS middleware
@@ -162,71 +162,188 @@ const tcpServer = net.createServer((socket) => {
   });
 });
 
-// Parse GPS data from device (example for GT06 protocol)
+// Parse GPS data from device (supports multiple protocols)
 function parseGPSData(buffer) {
   try {
-    // This is a simplified parser - real implementation depends on device protocol
-    // GT06, TK103, H02, etc. have different formats
-    
     const hex = buffer.toString('hex');
-    console.log('Received GPS data (hex):', hex);
+    const text = buffer.toString('utf8');
     
-    // GT06 protocol parsing
+    console.log('Received GPS data (hex):', hex.substring(0, 100) + (hex.length > 100 ? '...' : ''));
+    console.log('Received GPS data (text):', text.substring(0, 100) + (text.length > 100 ? '...' : ''));
+    
+    // Protocol 1: HEAD protocol (text-based)
+    if (text.includes('HEAD')) {
+      console.log('Detected HEAD protocol');
+      return parseHEADProtocol(text);
+    }
+    
+    // Protocol 2: GT06 protocol (binary)
     if (buffer[0] === 0x78 && buffer[1] === 0x78) {
-      const length = buffer[2];
-      const protocolNumber = buffer[3];
-      
-      // Login packet (0x01) - contains IMEI
-      if (protocolNumber === 0x01) {
-        const imei = buffer.slice(4, 12).toString('hex');
-        console.log('Device login - IMEI:', imei);
-        return null; // Just log, don't process as location
-      }
-      
-      // Location packet (0x12 or 0x22)
-      if (protocolNumber === 0x12 || protocolNumber === 0x22) {
-        // Extract IMEI from serial number (last 7 digits typically)
-        const serialNumber = buffer.readUInt16BE(length - 4);
-        const deviceId = serialNumber.toString();
-        
-        // Parse location data
-        const dateTime = buffer.slice(4, 10);
-        const gpsLength = buffer[10];
-        const latitude = buffer.readUInt32BE(11) / 1800000;
-        const longitude = buffer.readUInt32BE(15) / 1800000;
-        const speed = buffer[19];
-        const course = buffer.readUInt16BE(20);
-        
-        console.log('Parsed location:', { deviceId, latitude, longitude, speed });
-        
-        return {
-          device_id: deviceId,
-          latitude,
-          longitude,
-          speed,
-          heading: course,
-          accuracy: 10,
-          timestamp: new Date().toISOString()
-        };
+      console.log('Detected GT06 protocol');
+      return parseGT06Protocol(buffer);
+    }
+    
+    // Protocol 3: NMEA GPRMC sentence
+    if (text.includes('$GPRMC') || text.includes('$GPGGA')) {
+      console.log('Detected NMEA protocol');
+      return parseNMEAProtocol(text);
+    }
+    
+    // Protocol 4: TK103 protocol
+    if (text.includes('imei:') || text.match(/\d{15}/)) {
+      console.log('Detected TK103-like protocol');
+      return parseTK103Protocol(text);
+    }
+    
+    console.log('Unable to parse GPS data - unknown protocol');
+    return null;
+  } catch (error) {
+    console.error('Error parsing GPS data:', error);
+    return null;
+  }
+}
+
+// Parse HEAD protocol (text-based)
+function parseHEADProtocol(data) {
+  try {
+    // Example: HEAD/HTBT,deviceId,lat,lon,speed,heading,...
+    const parts = data.split(',');
+    
+    if (parts.length < 5) {
+      console.log('HEAD protocol: insufficient data parts');
+      return null;
+    }
+    
+    // Extract device ID (usually in first or second part)
+    let deviceId = null;
+    for (let i = 0; i < Math.min(3, parts.length); i++) {
+      const match = parts[i].match(/(\d{10,})/);
+      if (match) {
+        deviceId = match[1];
+        break;
       }
     }
     
-    // Try NMEA GPRMC sentence parsing as fallback
-    const data = buffer.toString();
+    if (!deviceId) {
+      console.log('HEAD protocol: device ID not found');
+      return null;
+    }
+    
+    // Try to find latitude and longitude
+    let latitude = null;
+    let longitude = null;
+    let speed = 0;
+    let heading = 0;
+    
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      
+      // Look for coordinates (format: N/S followed by number or just decimal)
+      if (part.match(/^[NS]/) && parts[i + 1]) {
+        const latStr = part.substring(1) || parts[i + 1];
+        latitude = parseFloat(latStr);
+        if (part[0] === 'S') latitude *= -1;
+      }
+      
+      if (part.match(/^[EW]/) && parts[i + 1]) {
+        const lonStr = part.substring(1) || parts[i + 1];
+        longitude = parseFloat(lonStr);
+        if (part[0] === 'W') longitude *= -1;
+      }
+      
+      // Look for decimal coordinates
+      const num = parseFloat(part);
+      if (!isNaN(num)) {
+        if (num >= -90 && num <= 90 && latitude === null) {
+          latitude = num;
+        } else if (num >= -180 && num <= 180 && longitude === null && latitude !== null) {
+          longitude = num;
+        } else if (num >= 0 && num <= 300 && latitude !== null && longitude !== null) {
+          speed = num;
+        }
+      }
+    }
+    
+    if (latitude !== null && longitude !== null) {
+      console.log('HEAD protocol parsed:', { deviceId, latitude, longitude, speed });
+      return {
+        device_id: deviceId,
+        latitude,
+        longitude,
+        speed,
+        heading,
+        accuracy: 10,
+        timestamp: new Date().toISOString()
+      };
+    }
+    
+    console.log('HEAD protocol: coordinates not found');
+    return null;
+  } catch (error) {
+    console.error('Error parsing HEAD protocol:', error);
+    return null;
+  }
+}
+
+// Parse GT06 protocol (binary)
+function parseGT06Protocol(buffer) {
+  try {
+    const length = buffer[2];
+    const protocolNumber = buffer[3];
+    
+    // Login packet (0x01) - contains IMEI
+    if (protocolNumber === 0x01) {
+      const imei = buffer.slice(4, 12).toString('hex');
+      console.log('GT06: Device login - IMEI:', imei);
+      return null;
+    }
+    
+    // Location packet (0x12 or 0x22)
+    if (protocolNumber === 0x12 || protocolNumber === 0x22) {
+      const serialNumber = buffer.readUInt16BE(length - 4);
+      const deviceId = serialNumber.toString();
+      
+      const latitude = buffer.readUInt32BE(11) / 1800000;
+      const longitude = buffer.readUInt32BE(15) / 1800000;
+      const speed = buffer[19];
+      const course = buffer.readUInt16BE(20);
+      
+      console.log('GT06 parsed:', { deviceId, latitude, longitude, speed });
+      
+      return {
+        device_id: deviceId,
+        latitude,
+        longitude,
+        speed,
+        heading: course,
+        accuracy: 10,
+        timestamp: new Date().toISOString()
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error parsing GT06:', error);
+    return null;
+  }
+}
+
+// Parse NMEA protocol
+function parseNMEAProtocol(data) {
+  try {
     if (data.includes('$GPRMC')) {
       const parts = data.split(',');
       
       if (parts.length >= 10) {
         const lat = parseCoordinate(parts[3], parts[4]);
         const lon = parseCoordinate(parts[5], parts[6]);
-        const speed = parseFloat(parts[7]) * 1.852; // knots to km/h
+        const speed = parseFloat(parts[7]) * 1.852;
         const heading = parseFloat(parts[8]);
         
-        // Try to extract device ID from data
-        const deviceIdMatch = data.match(/ID:(\w+)/i);
+        const deviceIdMatch = data.match(/ID:(\w+)/i) || data.match(/(\d{10,})/);
         const deviceId = deviceIdMatch ? deviceIdMatch[1] : 'UNKNOWN';
         
-        console.log('Parsed NMEA location:', { deviceId, lat, lon, speed });
+        console.log('NMEA parsed:', { deviceId, lat, lon, speed });
         
         return {
           device_id: deviceId,
@@ -239,11 +356,57 @@ function parseGPSData(buffer) {
         };
       }
     }
-    
-    console.log('Unable to parse GPS data');
     return null;
   } catch (error) {
-    console.error('Error parsing GPS data:', error);
+    console.error('Error parsing NMEA:', error);
+    return null;
+  }
+}
+
+// Parse TK103-like protocol
+function parseTK103Protocol(data) {
+  try {
+    // Example: imei:123456789012345,tracker,151117120000,,F,120000.000,A,3000.0000,N,03000.0000,E,0.00,0;
+    const imeiMatch = data.match(/imei:(\d{15})/i) || data.match(/(\d{15})/);
+    if (!imeiMatch) return null;
+    
+    const deviceId = imeiMatch[1];
+    const parts = data.split(',');
+    
+    let latitude = null;
+    let longitude = null;
+    let speed = 0;
+    
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (parts[i].match(/^\d{4}\.\d{4}$/) && parts[i + 1] === 'N' || parts[i + 1] === 'S') {
+        const coord = parseFloat(parts[i]);
+        latitude = Math.floor(coord / 100) + (coord % 100) / 60;
+        if (parts[i + 1] === 'S') latitude *= -1;
+      }
+      
+      if (parts[i].match(/^\d{5}\.\d{4}$/) && parts[i + 1] === 'E' || parts[i + 1] === 'W') {
+        const coord = parseFloat(parts[i]);
+        longitude = Math.floor(coord / 100) + (coord % 100) / 60;
+        if (parts[i + 1] === 'W') longitude *= -1;
+      }
+    }
+    
+    if (latitude !== null && longitude !== null) {
+      console.log('TK103 parsed:', { deviceId, latitude, longitude, speed });
+      return {
+        device_id: deviceId,
+        latitude,
+        longitude,
+        speed,
+        heading: 0,
+        accuracy: 10,
+        timestamp: new Date().toISOString()
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error parsing TK103:', error);
     return null;
   }
 }

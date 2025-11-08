@@ -48,6 +48,14 @@ CREATE POLICY "Users can delete own GPS devices"
   TO authenticated
   USING (auth.uid() = user_id);
 
+-- Allow service role (GPS server) to update device status
+DROP POLICY IF EXISTS "Service role can update GPS devices" ON gps_devices;
+CREATE POLICY "Service role can update GPS devices"
+  ON gps_devices FOR UPDATE
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
+
 -- Update trigger
 DROP TRIGGER IF EXISTS update_gps_devices_updated_at ON gps_devices;
 CREATE TRIGGER update_gps_devices_updated_at

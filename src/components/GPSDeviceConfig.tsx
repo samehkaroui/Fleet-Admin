@@ -112,6 +112,45 @@ export default function GPSDeviceConfig() {
     loadVehicles();
     loadDevices();
     checkServerStatus();
+
+    // Subscribe to realtime updates for gps_devices table
+    const channel = supabase
+      .channel('gps_devices_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'gps_devices'
+        },
+        (payload) => {
+          console.log('GPS device update received:', payload);
+          
+          if (payload.eventType === 'INSERT') {
+            setDevices(prev => [payload.new as GPSDevice, ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            setDevices(prev => 
+              prev.map(device => 
+                device.id === payload.new.id ? payload.new as GPSDevice : device
+              )
+            );
+            
+            // Show success message when device becomes active
+            if (payload.new.status === 'active' && payload.old.status === 'pending') {
+              setSuccess(`Device ${payload.new.device_id} is now active!`);
+              setTimeout(() => setSuccess(''), 5000);
+            }
+          } else if (payload.eventType === 'DELETE') {
+            setDevices(prev => prev.filter(device => device.id !== payload.old.id));
+          }
+        }
+      )
+      .subscribe();
+
+    // Cleanup subscription on unmount
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [checkServerStatus]);
 
   const handleSubmit = async (e: React.FormEvent) => {
