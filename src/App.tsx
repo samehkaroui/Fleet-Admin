@@ -15,9 +15,10 @@ import FuelMonitoring from './components/FuelMonitoring';
 import TripHistory from './components/TripHistory';
 import AddGPSLocation from './components/AddGPSLocation';
 import GPSDeviceConfig from './components/GPSDeviceConfig';
-import { Truck, LayoutDashboard, MapPin, Wrench, Route, Users, UserCheck, LogOut, Menu, X, Shield, Bell, Droplet, History, Navigation2, Smartphone } from 'lucide-react';
+import SimpleTracking from './components/SimpleTracking';
+import { Truck, LayoutDashboard, MapPin, Wrench, Route, Users, UserCheck, LogOut, Menu, X, Shield, Bell, Droplet, History, Navigation2, Smartphone, Activity } from 'lucide-react';
 
-type View = 'dashboard' | 'vehicles' | 'drivers' | 'gps' | 'addgps' | 'gpsdevice' | 'maintenance' | 'trips' | 'assignments' | 'roles' | 'alerts' | 'fuel' | 'history';
+type View = 'dashboard' | 'vehicles' | 'drivers' | 'gps' | 'addgps' | 'gpsdevice' | 'livetracking' | 'maintenance' | 'trips' | 'assignments' | 'roles' | 'alerts' | 'fuel' | 'history';
 
 function AppContent() {
   const { user, loading, signOut } = useAuth();
@@ -43,6 +44,7 @@ function AppContent() {
     { id: 'gps' as View, label: 'GPS & Zones', icon: MapPin },
     { id: 'addgps' as View, label: 'Add GPS', icon: Navigation2 },
     { id: 'gpsdevice' as View, label: 'GPS Devices', icon: Smartphone },
+    { id: 'livetracking' as View, label: 'Live Tracking', icon: Activity },
     { id: 'alerts' as View, label: 'Alerts', icon: Bell },
     { id: 'fuel' as View, label: 'Fuel Monitor', icon: Droplet },
     { id: 'history' as View, label: 'Trip History', icon: History },
@@ -147,6 +149,7 @@ function AppContent() {
             {currentView === 'gps' && <GPSTrackingEnhanced />}
             {currentView === 'addgps' && <AddGPSLocation />}
             {currentView === 'gpsdevice' && <GPSDeviceConfig />}
+            {currentView === 'livetracking' && <SimpleTracking />}
             {currentView === 'alerts' && <Alerts />}
             {currentView === 'fuel' && <FuelMonitoring />}
             {currentView === 'history' && <TripHistory />}

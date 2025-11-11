@@ -144,6 +144,65 @@ app.get('/devices/connected', (req, res) => {
   res.json({ devices, count: devices.length });
 });
 
+// Traccar Client endpoint - optimized for Traccar protocol
+app.all('/traccar', async (req, res) => {
+  try {
+    console.log('=== TRACCAR REQUEST ===');
+    console.log('Method:', req.method);
+    console.log('Query:', req.query);
+    console.log('Body:', req.body);
+    console.log('Headers:', req.headers);
+    
+    // Combine query and body parameters
+    const data = { ...req.query, ...req.body };
+    
+    // Traccar parameter mapping
+    const device_id = data.id || data.device_id || data.deviceid || data.uniqueid || data.imei || 'unknown';
+    const latitude = data.lat || data.latitude;
+    const longitude = data.lon || data.lng || data.longitude;
+    const speed = data.speed || data.spd || data.vel || '0';
+    const heading = data.heading || data.course || data.bearing || data.bear || '0';
+    const accuracy = data.accuracy || data.acc || data.hacc || '10';
+    const altitude = data.altitude || data.alt || '0';
+    const battery = data.battery || data.batt || '100';
+    const timestamp = data.timestamp || data.time || new Date().toISOString();
+
+    console.log('Extracted data:', { device_id, latitude, longitude, speed, heading });
+
+    if (latitude && longitude) {
+      const gpsData = {
+        device_id,
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        speed: parseFloat(speed),
+        heading: parseFloat(heading),
+        accuracy: parseFloat(accuracy),
+        altitude: parseFloat(altitude),
+        battery: parseFloat(battery),
+        timestamp: new Date(timestamp).toISOString()
+      };
+
+      console.log('✅ Processing Traccar GPS data:', gpsData);
+      await processGPSData(gpsData);
+      
+      // Broadcast to connected clients via WebSocket
+      io.emit('gps_update', {
+        device_id: gpsData.device_id,
+        location: gpsData,
+        timestamp: gpsData.timestamp
+      });
+      
+      res.status(200).send('OK');
+    } else {
+      console.log('❌ Missing coordinates in Traccar data');
+      res.status(200).send('OK');
+    }
+  } catch (error) {
+    console.error('Error processing Traccar request:', error);
+    res.status(200).send('OK');
+  }
+});
+
 // HTTP GET endpoint for GPS devices (many devices send data via GET with query params)
 app.get('/gps', async (req, res) => {
   try {
@@ -174,6 +233,13 @@ app.get('/gps', async (req, res) => {
 
     console.log('Processing GPS data from GET:', gpsData);
     await processGPSData(gpsData);
+
+    // Broadcast to connected clients
+    io.emit('gps_update', {
+      device_id: gpsData.device_id,
+      location: gpsData,
+      timestamp: gpsData.timestamp
+    });
 
     res.status(200).send('OK');
   } catch (error) {
@@ -619,13 +685,25 @@ async function processGPSData(gpsData) {
 
     if (error) throw error;
 
-    // Emit to connected clients
-    io.emit('gps_update', {
+    // Emit to connected clients with enhanced data
+    const updateData = {
+      device_id: gpsData.device_id,
       vehicle_id: vehicle.id,
-      location
+      location: {
+        ...location,
+        device_id: gpsData.device_id
+      },
+      timestamp: gpsData.timestamp
+    };
+    
+    io.emit('gps_update', updateData);
+    console.log(`✅ GPS data processed and broadcasted:`, {
+      device_id: gpsData.device_id,
+      vehicle_id: vehicle.id,
+      coordinates: `${gpsData.latitude}, ${gpsData.longitude}`,
+      speed: `${gpsData.speed} m/s`,
+      clients_notified: io.engine.clientsCount
     });
-
-    console.log(`GPS data processed for device ${gpsData.device_id}, vehicle ${vehicle.id}`);
 
     // Check for alerts
     await checkAlerts(vehicle, location);
