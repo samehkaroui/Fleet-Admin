@@ -36,19 +36,60 @@ export default function GPSTrackingEnhanced() {
     loadVehiclesWithLocations();
     loadGeofences();
 
-    // Real-time GPS updates
+    if (!user) return;
+
+    console.log('🔌 Setting up realtime GPS updates...');
+
     const gpsChannel = supabase
-      .channel('gps_updates')
-      .on('postgres_changes', 
+      .channel('gps_updates_enhanced')
+      .on(
+        'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'gps_locations' },
-        () => {
-          loadVehiclesWithLocations();
+        (payload) => {
+          console.log('⚡ New GPS location received:', payload.new);
+          
+          // Update vehicle location immediately without reloading all data
+          const newLocation = payload.new as GPSLocation;
+          
+          setVehicles(prevVehicles => 
+            prevVehicles.map(vehicle => {
+              if (vehicle.id === newLocation.vehicle_id) {
+                console.log(`📍 Updating ${vehicle.name} position instantly`);
+                return {
+                  ...vehicle,
+                  latest_location: newLocation
+                };
+              }
+              return vehicle;
+            })
+          );
+
+          // Update selected vehicle if it's the one that got updated
+          setSelectedVehicle(prev => {
+            if (prev && prev.id === newLocation.vehicle_id) {
+              return {
+                ...prev,
+                latest_location: newLocation
+              };
+            }
+            return prev;
+          });
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('📡 Realtime subscription status:', status);
+      });
+
+    // Also set up periodic refresh every 30 seconds as backup
+    const refreshInterval = setInterval(() => {
+      console.log('🔄 Periodic refresh...');
+      loadVehiclesWithLocations();
+    }, 30000);
 
     return () => {
+      console.log('🔌 Cleaning up realtime connection...');
       gpsChannel.unsubscribe();
+      clearInterval(refreshInterval);
     };
   }, [user]);
 

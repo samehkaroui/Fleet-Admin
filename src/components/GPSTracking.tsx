@@ -90,25 +90,57 @@ export default function GPSTracking() {
     // Real-time subscription for GPS location updates
     if (!user) return;
     
+    console.log('🔌 Setting up realtime GPS updates...');
+    
     const gpsSubscription = supabase
       .channel('gps_realtime')
       .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'gps_locations' },
+        { event: 'INSERT', schema: 'public', table: 'gps_locations' },
         (payload) => {
-          console.log('GPS Update received:', payload);
-          loadVehiclesWithLocations();
-          if (selectedVehicle && payload.new && 
-              (payload.new as GPSLocation).vehicle_id === selectedVehicle.id) {
+          console.log('⚡ GPS Update received:', payload.new);
+          
+          const newLocation = payload.new as GPSLocation;
+          
+          // Update vehicle location immediately
+          setVehicles(prevVehicles => 
+            prevVehicles.map(vehicle => {
+              if (vehicle.id === newLocation.vehicle_id) {
+                console.log(`📍 Updating ${vehicle.name} position instantly`);
+                return {
+                  ...vehicle,
+                  latest_location: newLocation
+                };
+              }
+              return vehicle;
+            })
+          );
+          
+          // Update selected vehicle and load history
+          if (selectedVehicle && newLocation.vehicle_id === selectedVehicle.id) {
+            setSelectedVehicle(prev => prev ? {
+              ...prev,
+              latest_location: newLocation
+            } : null);
             loadLocationHistory(selectedVehicle.id);
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('📡 Realtime subscription status:', status);
+      });
+    
+    // Periodic refresh every 30 seconds as backup
+    const refreshInterval = setInterval(() => {
+      console.log('🔄 Periodic refresh...');
+      loadVehiclesWithLocations();
+    }, 30000);
     
     return () => {
+      console.log('🔌 Cleaning up realtime connection...');
       gpsSubscription.unsubscribe();
+      clearInterval(refreshInterval);
     };
-  }, [user, loadVehiclesWithLocations, selectedVehicle]);
+  }, [user, selectedVehicle, loadVehiclesWithLocations]);
 
   useEffect(() => {
     if (selectedVehicle) {
