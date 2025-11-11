@@ -22,22 +22,46 @@ export default function GPSTracking() {
 
   const loadVehiclesWithLocations = useCallback(async () => {
     try {
+      console.log('🔄 Loading vehicles with GPS locations...');
+      
       const { data: vehiclesData } = await supabase
         .from('vehicles')
         .select('*')
         .eq('status', 'active')
         .order('name');
 
+      console.log('Found vehicles:', vehiclesData?.length || 0);
+
       if (vehiclesData) {
         const vehiclesWithLocations = await Promise.all(
           vehiclesData.map(async (vehicle) => {
-            const { data: location } = await supabase
+            // Get latest GPS location (only from last 24 hours to avoid old data)
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            
+            const { data: location, error } = await supabase
               .from('gps_locations')
               .select('*')
               .eq('vehicle_id', vehicle.id)
+              .gte('timestamp', twentyFourHoursAgo)
               .order('timestamp', { ascending: false })
               .limit(1)
               .maybeSingle();
+
+            if (error) {
+              console.error(`Error loading location for ${vehicle.name}:`, error);
+            }
+
+            if (location) {
+              console.log(`📍 ${vehicle.name}:`, {
+                lat: location.latitude,
+                lon: location.longitude,
+                speed: location.speed,
+                timestamp: location.timestamp,
+                age: Math.round((Date.now() - new Date(location.timestamp).getTime()) / 1000 / 60) + ' minutes ago'
+              });
+            } else {
+              console.log(`⚠️ ${vehicle.name}: No recent GPS data (last 24h)`);
+            }
 
             return {
               ...vehicle,
@@ -50,9 +74,11 @@ export default function GPSTracking() {
         if (vehiclesWithLocations.length > 0 && !selectedVehicle) {
           setSelectedVehicle(vehiclesWithLocations[0]);
         }
+        
+        console.log('✅ Vehicles loaded with locations');
       }
     } catch (error) {
-      console.error('Error loading vehicles:', error);
+      console.error('❌ Error loading vehicles:', error);
     } finally {
       setLoading(false);
     }
