@@ -22,46 +22,22 @@ export default function GPSTracking() {
 
   const loadVehiclesWithLocations = useCallback(async () => {
     try {
-      console.log('🔄 Loading vehicles with GPS locations...');
-      
       const { data: vehiclesData } = await supabase
         .from('vehicles')
         .select('*')
         .eq('status', 'active')
         .order('name');
 
-      console.log('Found vehicles:', vehiclesData?.length || 0);
-
       if (vehiclesData) {
         const vehiclesWithLocations = await Promise.all(
           vehiclesData.map(async (vehicle) => {
-            // Get latest GPS location (only from last 24 hours to avoid old data)
-            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-            
-            const { data: location, error } = await supabase
+            const { data: location } = await supabase
               .from('gps_locations')
               .select('*')
               .eq('vehicle_id', vehicle.id)
-              .gte('timestamp', twentyFourHoursAgo)
               .order('timestamp', { ascending: false })
               .limit(1)
               .maybeSingle();
-
-            if (error) {
-              console.error(`Error loading location for ${vehicle.name}:`, error);
-            }
-
-            if (location) {
-              console.log(`📍 ${vehicle.name}:`, {
-                lat: location.latitude,
-                lon: location.longitude,
-                speed: location.speed,
-                timestamp: location.timestamp,
-                age: Math.round((Date.now() - new Date(location.timestamp).getTime()) / 1000 / 60) + ' minutes ago'
-              });
-            } else {
-              console.log(`⚠️ ${vehicle.name}: No recent GPS data (last 24h)`);
-            }
 
             return {
               ...vehicle,
@@ -74,11 +50,9 @@ export default function GPSTracking() {
         if (vehiclesWithLocations.length > 0 && !selectedVehicle) {
           setSelectedVehicle(vehiclesWithLocations[0]);
         }
-        
-        console.log('✅ Vehicles loaded with locations');
       }
     } catch (error) {
-      console.error('❌ Error loading vehicles:', error);
+      console.error('Error loading vehicles:', error);
     } finally {
       setLoading(false);
     }
@@ -90,57 +64,25 @@ export default function GPSTracking() {
     // Real-time subscription for GPS location updates
     if (!user) return;
     
-    console.log('🔌 Setting up realtime GPS updates...');
-    
     const gpsSubscription = supabase
       .channel('gps_realtime')
       .on('postgres_changes', 
-        { event: 'INSERT', schema: 'public', table: 'gps_locations' },
+        { event: '*', schema: 'public', table: 'gps_locations' },
         (payload) => {
-          console.log('⚡ GPS Update received:', payload.new);
-          
-          const newLocation = payload.new as GPSLocation;
-          
-          // Update vehicle location immediately
-          setVehicles(prevVehicles => 
-            prevVehicles.map(vehicle => {
-              if (vehicle.id === newLocation.vehicle_id) {
-                console.log(`📍 Updating ${vehicle.name} position instantly`);
-                return {
-                  ...vehicle,
-                  latest_location: newLocation
-                };
-              }
-              return vehicle;
-            })
-          );
-          
-          // Update selected vehicle and load history
-          if (selectedVehicle && newLocation.vehicle_id === selectedVehicle.id) {
-            setSelectedVehicle(prev => prev ? {
-              ...prev,
-              latest_location: newLocation
-            } : null);
+          console.log('GPS Update received:', payload);
+          loadVehiclesWithLocations();
+          if (selectedVehicle && payload.new && 
+              (payload.new as GPSLocation).vehicle_id === selectedVehicle.id) {
             loadLocationHistory(selectedVehicle.id);
           }
         }
       )
-      .subscribe((status) => {
-        console.log('📡 Realtime subscription status:', status);
-      });
-    
-    // Periodic refresh every 30 seconds as backup
-    const refreshInterval = setInterval(() => {
-      console.log('🔄 Periodic refresh...');
-      loadVehiclesWithLocations();
-    }, 30000);
+      .subscribe();
     
     return () => {
-      console.log('🔌 Cleaning up realtime connection...');
       gpsSubscription.unsubscribe();
-      clearInterval(refreshInterval);
     };
-  }, [user, selectedVehicle, loadVehiclesWithLocations]);
+  }, [user, loadVehiclesWithLocations, selectedVehicle]);
 
   useEffect(() => {
     if (selectedVehicle) {

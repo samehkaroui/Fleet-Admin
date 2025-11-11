@@ -36,105 +36,40 @@ export default function GPSTrackingEnhanced() {
     loadVehiclesWithLocations();
     loadGeofences();
 
-    if (!user) return;
-
-    console.log('🔌 Setting up realtime GPS updates...');
-
+    // Real-time GPS updates
     const gpsChannel = supabase
-      .channel('gps_updates_enhanced')
-      .on(
-        'postgres_changes',
+      .channel('gps_updates')
+      .on('postgres_changes', 
         { event: 'INSERT', schema: 'public', table: 'gps_locations' },
-        (payload) => {
-          console.log('⚡ New GPS location received:', payload.new);
-          
-          // Update vehicle location immediately without reloading all data
-          const newLocation = payload.new as GPSLocation;
-          
-          setVehicles(prevVehicles => 
-            prevVehicles.map(vehicle => {
-              if (vehicle.id === newLocation.vehicle_id) {
-                console.log(`📍 Updating ${vehicle.name} position instantly`);
-                return {
-                  ...vehicle,
-                  latest_location: newLocation
-                };
-              }
-              return vehicle;
-            })
-          );
-
-          // Update selected vehicle if it's the one that got updated
-          setSelectedVehicle(prev => {
-            if (prev && prev.id === newLocation.vehicle_id) {
-              return {
-                ...prev,
-                latest_location: newLocation
-              };
-            }
-            return prev;
-          });
+        () => {
+          loadVehiclesWithLocations();
         }
       )
-      .subscribe((status) => {
-        console.log('📡 Realtime subscription status:', status);
-      });
-
-    // Also set up periodic refresh every 30 seconds as backup
-    const refreshInterval = setInterval(() => {
-      console.log('🔄 Periodic refresh...');
-      loadVehiclesWithLocations();
-    }, 30000);
+      .subscribe();
 
     return () => {
-      console.log('🔌 Cleaning up realtime connection...');
       gpsChannel.unsubscribe();
-      clearInterval(refreshInterval);
     };
   }, [user]);
 
   const loadVehiclesWithLocations = useCallback(async () => {
     try {
-      console.log('🔄 [Enhanced] Loading vehicles with GPS locations...');
-      
       const { data: vehiclesData } = await supabase
         .from('vehicles')
         .select('*')
         .eq('status', 'active')
         .order('name');
 
-      console.log('[Enhanced] Found vehicles:', vehiclesData?.length || 0);
-
       if (vehiclesData) {
         const vehiclesWithLocations = await Promise.all(
           vehiclesData.map(async (vehicle) => {
-            // Get latest GPS location (only from last 24 hours to avoid old data)
-            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-            
-            const { data: location, error } = await supabase
+            const { data: location } = await supabase
               .from('gps_locations')
               .select('*')
               .eq('vehicle_id', vehicle.id)
-              .gte('timestamp', twentyFourHoursAgo)
               .order('timestamp', { ascending: false })
               .limit(1)
               .maybeSingle();
-
-            if (error) {
-              console.error(`[Enhanced] Error loading location for ${vehicle.name}:`, error);
-            }
-
-            if (location) {
-              console.log(`📍 [Enhanced] ${vehicle.name}:`, {
-                lat: location.latitude,
-                lon: location.longitude,
-                speed: location.speed,
-                timestamp: location.timestamp,
-                age: Math.round((Date.now() - new Date(location.timestamp).getTime()) / 1000 / 60) + ' minutes ago'
-              });
-            } else {
-              console.log(`⚠️ [Enhanced] ${vehicle.name}: No recent GPS data (last 24h)`);
-            }
 
             return {
               ...vehicle,
@@ -147,11 +82,9 @@ export default function GPSTrackingEnhanced() {
         if (vehiclesWithLocations.length > 0 && !selectedVehicle) {
           setSelectedVehicle(vehiclesWithLocations[0]);
         }
-        
-        console.log('✅ [Enhanced] Vehicles loaded with locations');
       }
     } catch (error) {
-      console.error('❌ [Enhanced] Error loading vehicles:', error);
+      console.error('Error loading vehicles:', error);
     } finally {
       setLoading(false);
     }

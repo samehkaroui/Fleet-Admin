@@ -579,42 +579,28 @@ function parseCoordinate(value, direction) {
 
 async function processGPSData(gpsData) {
   try {
-    console.log('=== Processing GPS Data ===');
-    console.log('Device ID:', gpsData.device_id);
-    console.log('Location:', `${gpsData.latitude}, ${gpsData.longitude}`);
-    console.log('Speed:', gpsData.speed, 'km/h');
-    console.log('Timestamp:', gpsData.timestamp);
-    
     // Find GPS device configuration
     const { data: gpsDevice } = await supabase
       .from('gps_devices')
-      .select('*, vehicle:vehicles(id, user_id, name)')
+      .select('*, vehicle:vehicles(id, user_id)')
       .eq('device_id', gpsData.device_id)
       .single();
 
     if (!gpsDevice || !gpsDevice.vehicle) {
-      console.log('❌ GPS device not found in database:', gpsData.device_id);
-      console.log('Available devices: Check GPS Device Configuration page');
+      console.log('GPS device not found:', gpsData.device_id);
       return;
     }
 
     const vehicle = gpsDevice.vehicle;
-    console.log('✅ Found vehicle:', vehicle.name, '(ID:', vehicle.id, ')');
 
     // Update device status to 'active' and last_connection
-    const { error: updateError } = await supabase
+    await supabase
       .from('gps_devices')
       .update({
         status: 'active',
         last_connection: new Date().toISOString()
       })
       .eq('device_id', gpsData.device_id);
-
-    if (updateError) {
-      console.error('Error updating device status:', updateError);
-    } else {
-      console.log('✅ Device status updated to ACTIVE');
-    }
 
     // Insert GPS location
     const { data: location, error } = await supabase
@@ -631,29 +617,20 @@ async function processGPSData(gpsData) {
       .select()
       .single();
 
-    if (error) {
-      console.error('❌ Error inserting GPS location:', error);
-      throw error;
-    }
-
-    console.log('✅ GPS location saved to database');
-    console.log('Location ID:', location.id);
+    if (error) throw error;
 
     // Emit to connected clients
     io.emit('gps_update', {
       vehicle_id: vehicle.id,
       location
     });
-    console.log('✅ Real-time update sent to clients');
 
-    console.log(`🎉 GPS data processed successfully for ${vehicle.name}`);
-    console.log('===========================\n');
+    console.log(`GPS data processed for device ${gpsData.device_id}, vehicle ${vehicle.id}`);
 
     // Check for alerts
     await checkAlerts(vehicle, location);
   } catch (error) {
-    console.error('❌ Error processing GPS data:', error);
-    console.error('Error details:', error.message);
+    console.error('Error processing GPS data:', error);
   }
 }
 
